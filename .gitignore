@@ -1,0 +1,21 @@
+# Local secrets and exported credentials
+cookie-*.txt
+*.cookie.txt
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local development verification artifacts
+pre_uninstall_extension/
+cookie_hub.diff
+VERIFICATION.txt
+ROLLBACK.sh
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+

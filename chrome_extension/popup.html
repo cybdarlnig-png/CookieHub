@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cookie Hub</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      width: 560px;
+      margin: 0;
+      padding: 18px;
+      color: #172033;
+      background: #f4f7fb;
+      font-family: "Microsoft YaHei UI", Arial, sans-serif;
+    }
+    h1 { margin: 0; font-size: 22px; }
+    .subtitle { margin: 5px 0 14px; color: #667085; font-size: 13px; }
+    .primary, .site button, .toolbar button {
+      border: 0;
+      border-radius: 9px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .primary {
+      width: 100%;
+      padding: 12px;
+      color: white;
+      background: #2563eb;
+      font-size: 15px;
+    }
+    .primary:hover { background: #1d4ed8; }
+    .section-title { margin: 16px 0 8px; font-size: 14px; font-weight: 700; }
+    .site-list { display: grid; gap: 8px; }
+    .site {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 7px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid #e4e7ec;
+      border-radius: 11px;
+      background: white;
+    }
+    .site-name { font-weight: 700; }
+    .site-url { margin-top: 2px; color: #98a2b3; font-size: 11px; }
+    .site button, .toolbar button { padding: 8px 10px; }
+    .open { color: #344054; background: #eef2f7; }
+    .get { color: white; background: #16a34a; }
+    textarea {
+      width: 100%;
+      height: 125px;
+      resize: vertical;
+      padding: 10px;
+      border: 1px solid #d0d5dd;
+      border-radius: 9px;
+      background: white;
+      font: 12px Consolas, monospace;
+    }
+    .toolbar { display: flex; gap: 8px; margin-top: 8px; }
+    .toolbar button { color: #344054; background: #e9eef5; }
+    .toolbar .danger { margin-left: auto; color: #b42318; background: #fee4e2; }
+    #status {
+      min-height: 20px;
+      margin-top: 10px;
+      color: #475467;
+      font-size: 13px;
+    }
+    .success { color: #15803d !important; }
+    .error { color: #b42318 !important; }
+  </style>
+</head>
+<body>
+  <h1>Cookie Hub</h1>
+  <div class="subtitle">使用当前 Chrome 登录状态，点击后自动复制 Cookie。</div>
+
+  <button id="current" class="primary">一键获取当前标签页 Cookie</button>
+
+  <div class="section-title">常用网站</div>
+  <div id="sites" class="site-list"></div>
+
+  <div class="section-title">获取结果</div>
+  <textarea id="output" spellcheck="false" placeholder="获取成功后会显示在这里，并自动复制到剪贴板。"></textarea>
+  <div class="toolbar">
+    <button id="copy">复制结果</button>
+    <button id="save">保存 TXT</button>
+    <button id="clear">清空</button>
+    <button id="uninstall" class="danger">卸载扩展</button>
+  </div>
+  <div id="status">请选择网站或获取当前标签页。</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
