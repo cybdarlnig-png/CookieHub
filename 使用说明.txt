@@ -1,19 +1,17 @@
-Cookie Hub 傻瓜式使用方法
+Cookie Hub 使用说明
 
-第一次：
-1. 双击“一键安装.bat”。
-2. 在打开的 Chrome 页面开启“开发者模式”。
-3. 点击“加载已解压的扩展程序”，选择自动打开的 chrome_extension 文件夹。
-4. 把 Cookie Hub 固定到 Chrome 工具栏。
+1. 双击“一键安装.bat”，按提示在 Chrome 的“扩展程序”页面加载 chrome_extension 文件夹。
+2. 点击 Chrome 工具栏中的 Cookie Hub 图标。
+3. 在列表中点击“进入网站”，使用电脑现有 Chrome 完成登录。
+4. 回到扩展，点击对应网站的“一键获取”。结果会自动复制到剪贴板，也可点击“保存 TXT”。
 
-以后使用：
-1. 点击 Chrome 工具栏上的 Cookie Hub 图标。
-2. 点击“进入网站”并登录。
-3. 点击“一键获取”，Cookie 会自动复制。
-
-也可以直接点击“一键获取当前标签页 Cookie”。
+迅雷云盘特别步骤：
+1. 打开 https://pan.xunlei.com/ 并确认已登录。
+2. 点击“迅雷云盘”旁的“一键获取”。扩展会刷新当前迅雷标签页，并捕获当前页面发出的 Authorization。
+3. 输出包含两行：Cookie 和 Authorization。
+4. 若提示未捕获 Authorization，确认当前标签页仍是迅雷云盘、登录状态有效，再点一次“一键获取”。
 
 卸载：
-1. 在 Cookie Hub 界面点击“卸载扩展”，在 Chrome 中确认“移除”。
-2. 双击“一键卸载.bat”。
-3. 卸载助手会清理扩展文件、旧版 CookieHub 本地数据和剪贴板内容，并询问是否删除导出的 cookie-*.txt。
+点击扩展里的“卸载扩展”并确认，或双击“一键卸载.bat”。卸载只删除本扩展，不删除 Chrome 账号、网站登录状态或其他扩展。
+
+注意：Cookie 和 Authorization 都是登录凭证，只在自己的账号和设备上使用，不要公开粘贴或提交到 GitHub。

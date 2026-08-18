@@ -8,7 +8,8 @@
 
 - 使用当前 Chrome 的登录状态
 - 支持任意普通 `HTTP/HTTPS` 网站的当前标签页
-- 预置夸克网盘、百度网盘、UC 网盘入口
+- 预置夸克网盘、百度网盘、UC 网盘和迅雷云盘入口
+- 迅雷云盘同时捕获匹配请求中的 `Authorization`
 - 一键整理为标准 `name=value; name2=value2` 格式
 - 自动复制到剪贴板，可保存为本地 TXT
 - 不启动独立浏览器或独立 Profile
@@ -51,9 +52,17 @@ Cookie 显示并自动复制
 ### 预置网站
 
 1. 点击 Chrome 工具栏上的 Cookie Hub 图标。
-2. 点击夸克网盘、百度网盘或 UC 网盘旁的“进入网站”。
+2. 点击夸克网盘、百度网盘、UC网盘或迅雷云盘旁的“进入网站”。
 3. 完成登录后重新打开扩展。
 4. 点击“一键获取”。
+
+迅雷云盘需要额外捕获 `Authorization`：登录后先刷新迅雷云盘页面，再点击“一键获取”。
+扩展会复制如下两行：
+
+```text
+Cookie: name=value; name2=value2
+Authorization: Bearer ...
+```
 
 ### 其他网站
 
@@ -75,9 +84,11 @@ Cookie 显示并自动复制
 | `tabs` | 获取当前活动标签页网址、打开预置网站 |
 | `clipboardWrite` | 将结果复制到剪贴板 |
 | `management` | 允许用户从扩展界面发起自卸载 |
+| `debugger` | 仅在用户点击迅雷按钮时，观察当前迅雷标签页的网络请求头 |
+| `storage` | 在当前扩展会话中暂存迅雷 Authorization |
 | `<all_urls>` | 支持当前标签页中的普通网站 |
 
-所有处理均在本机 Chrome 扩展中完成。项目代码没有使用 `fetch`、`XMLHttpRequest`、WebSocket 或远程服务器上传 Cookie。
+所有处理均在本机 Chrome 扩展中完成。项目代码没有使用 `fetch`、`XMLHttpRequest`、WebSocket 或远程服务器上传 Cookie。Authorization 监听仅匹配 `*.xunlei.com` 请求，并在捕获到 Authorization 后立即解除调试连接。
 
 ## 使用限制
 
@@ -101,6 +112,7 @@ Chrome 负责删除扩展注册和扩展数据；卸载助手负责清理项目�
 CookieHub/
 ├─ chrome_extension/       # Chrome 扩展正式源代码
 │  ├─ manifest.json        # 扩展配置和权限
+│  ├─ background.js        # 迅雷 Authorization 捕获服务
 │  ├─ popup.html           # 扩展弹窗界面
 │  ├─ popup.js             # Cookie 获取与导出逻辑
 │  └─ README.md
@@ -131,3 +143,4 @@ node --check chrome_extension/popup.js
 ## 开源许可
 
 本项目使用 [MIT License](LICENSE)。
+

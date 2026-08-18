@@ -1,0 +1,355 @@
+diff --git a/README.md b/README.md
+index b3bcb2b..b10002c 100644
+--- a/README.md
++++ b/README.md
+@@ -8,7 +8,8 @@
+ 
+ - 使用当前 Chrome 的登录状态
+ - 支持任意普通 `HTTP/HTTPS` 网站的当前标签页
+-- 预置夸克网盘、百度网盘、UC 网盘入口
++- 预置夸克网盘、百度网盘、UC 网盘和迅雷云盘入口
++- 迅雷云盘同时捕获匹配请求中的 `Authorization`
+ - 一键整理为标准 `name=value; name2=value2` 格式
+ - 自动复制到剪贴板，可保存为本地 TXT
+ - 不启动独立浏览器或独立 Profile
+@@ -51,10 +52,18 @@ Cookie 显示并自动复制
+ ### 预置网站
+ 
+ 1. 点击 Chrome 工具栏上的 Cookie Hub 图标。
+-2. 点击夸克网盘、百度网盘或 UC 网盘旁的“进入网站”。
++2. 点击夸克网盘、百度网盘、UC网盘或迅雷云盘旁的“进入网站”。
+ 3. 完成登录后重新打开扩展。
+ 4. 点击“一键获取”。
+ 
++迅雷云盘需要额外捕获 `Authorization`：登录后先刷新迅雷云盘页面，再点击“一键获取”。
++扩展会复制如下两行：
++
++```text
++Cookie: name=value; name2=value2
++Authorization: Bearer ...
++```
++
+ ### 其他网站
+ 
+ 1. 在 Chrome 中打开目标网站并登录。
+@@ -75,9 +84,11 @@ Cookie 显示并自动复制
+ | `tabs` | 获取当前活动标签页网址、打开预置网站 |
+ | `clipboardWrite` | 将结果复制到剪贴板 |
+ | `management` | 允许用户从扩展界面发起自卸载 |
++| `debugger` | 仅在用户点击迅雷按钮时，观察当前迅雷标签页的网络请求头 |
++| `storage` | 在当前扩展会话中暂存迅雷 Authorization |
+ | `<all_urls>` | 支持当前标签页中的普通网站 |
+ 
+-所有处理均在本机 Chrome 扩展中完成。项目代码没有使用 `fetch`、`XMLHttpRequest`、WebSocket 或远程服务器上传 Cookie。
++所有处理均在本机 Chrome 扩展中完成。项目代码没有使用 `fetch`、`XMLHttpRequest`、WebSocket 或远程服务器上传 Cookie。Authorization 监听仅匹配 `*.xunlei.com` 请求，并在捕获到 Authorization 后立即解除调试连接。
+ 
+ ## 使用限制
+ 
+@@ -101,6 +112,7 @@ Chrome 负责删除扩展注册和扩展数据；卸载助手负责清理项目
+ CookieHub/
+ ├─ chrome_extension/       # Chrome 扩展正式源代码
+ │  ├─ manifest.json        # 扩展配置和权限
++│  ├─ background.js        # 迅雷 Authorization 捕获服务
+ │  ├─ popup.html           # 扩展弹窗界面
+ │  ├─ popup.js             # Cookie 获取与导出逻辑
+ │  └─ README.md
+@@ -131,3 +143,4 @@ node --check chrome_extension/popup.js
+ ## 开源许可
+ 
+ 本项目使用 [MIT License](LICENSE)。
++
+diff --git a/chrome_extension/README.md b/chrome_extension/README.md
+index 23079df..e93ae15 100644
+--- a/chrome_extension/README.md
++++ b/chrome_extension/README.md
+@@ -5,8 +5,20 @@
+ 界面提供：
+ 
+ - 一键获取当前标签页 Cookie；
+-- 夸克网盘、百度网盘、UC 网盘快捷入口；
++- 夸克网盘、百度网盘、UC 网盘、迅雷云盘快捷入口；
++- 迅雷云盘同时获取 Cookie 和 Authorization；
+ - 一键获取并复制；
+ - 保存 TXT；
+ - 复制和清空结果。
+ - 点击“卸载扩展”并确认即可从 Chrome 删除。
++
++迅雷云盘需要在登录后刷新页面，让扩展捕获当前迅雷标签页网络请求中的
++`Authorization` 请求头。获取结果会以两行形式复制：
++
++```text
++Cookie: name=value; name2=value2
++Authorization: Bearer ...
++```
++
++Authorization 只在本地扩展会话中暂存，不上传到远程服务器。点击“一键获取”时扩展会刷新当前迅雷标签页，捕获成功后立即断开调试连接。
++
+diff --git a/chrome_extension/manifest.json b/chrome_extension/manifest.json
+index 06d587a..e140e6f 100644
+--- a/chrome_extension/manifest.json
++++ b/chrome_extension/manifest.json
+@@ -1,10 +1,13 @@
+ {
+   "manifest_version": 3,
+   "name": "Cookie Hub 一键获取 Cookie",
+-  "version": "1.1.0",
+-  "description": "在当前 Chrome 中打开网站并一键复制已登录网站的 Cookie。",
+-  "permissions": ["cookies", "tabs", "clipboardWrite", "management"],
++  "version": "1.2.1",
++  "description": "在当前 Chrome 中获取已登录网站的 Cookie；迅雷云盘同时捕获 Authorization。",
++  "permissions": ["cookies", "tabs", "clipboardWrite", "management", "debugger", "storage"],
+   "host_permissions": ["<all_urls>"],
++  "background": {
++    "service_worker": "background.js"
++  },
+   "action": {
+     "default_title": "Cookie Hub 一键获取 Cookie",
+     "default_popup": "popup.html"
+diff --git a/chrome_extension/popup.js b/chrome_extension/popup.js
+index bf23b85..2554a0a 100644
+--- a/chrome_extension/popup.js
++++ b/chrome_extension/popup.js
+@@ -1,7 +1,8 @@
+ const SITES = [
+   { name: "夸克网盘", url: "https://pan.quark.cn/" },
+   { name: "百度网盘", url: "https://pan.baidu.com/" },
+-  { name: "UC网盘", url: "https://drive.uc.cn/" }
++  { name: "UC网盘", url: "https://drive.uc.cn/" },
++  { name: "迅雷云盘", url: "https://pan.xunlei.com/", needsAuthorization: true }
+ ];
+ 
+ const sitesElement = document.getElementById("sites");
+@@ -21,21 +22,75 @@ async function copyText(text) {
+   await navigator.clipboard.writeText(text);
+ }
+ 
+-async function getCookiesForUrl(url, label) {
+-  setStatus(`正在获取 ${label}…`);
++function isXunleiUrl(url) {
+   try {
+-    const cookies = await chrome.cookies.getAll({ url });
+-    const header = cookieHeader(cookies);
+-    outputElement.value = header;
+-    if (!header) {
+-      setStatus(`${label} 没有读取到 Cookie，请先登录。`, "error");
++    return /(^|\\.)xunlei\\.com$/i.test(new URL(url).hostname);
++  } catch {
++    return false;
++  }
++}
++
++async function getAuthorization() {
++  return chrome.runtime.sendMessage({ type: "getXunleiAuthorization" });
++}
++
++async function waitForAuthorization(attempts = 12, interval = 500) {
++  for (let index = 0; index < attempts; index += 1) {
++    const authorization = await getAuthorization();
++    if (authorization?.value) return authorization;
++    await new Promise((resolve) => setTimeout(resolve, interval));
++  }
++  return null;
++}
++
++async function prepareXunleiCapture(tabId) {
++  const response = await chrome.runtime.sendMessage({ type: "startXunleiCapture", tabId });
++  if (!response?.ok) throw new Error(response?.error || "无法启动迅雷请求捕获");
++  await chrome.tabs.reload(tabId);
++}
++
++async function getCookiesForTab(tab, label, needsAuthorization = false) {
++  setStatus(`正在获取 ${label}…`);
++  const url = tab.url;
++  const cookies = await chrome.cookies.getAll({ url });
++  const cookieValue = cookieHeader(cookies);
++  let result = cookieValue;
++
++  if (needsAuthorization) {
++    if (!isXunleiUrl(url)) throw new Error("请先打开 pan.xunlei.com 迅雷云盘页面");
++    setStatus("正在刷新迅雷页面并捕获 Authorization…");
++    await prepareXunleiCapture(tab.id);
++    const authorization = await waitForAuthorization();
++    if (!authorization?.value) {
++      outputElement.value = cookieValue;
++      setStatus("未捕获到 Authorization，请确认已登录迅雷云盘后再点一次。", "error");
+       return;
+     }
+-    await copyText(header);
+-    setStatus(`已获取 ${cookies.length} 个 Cookie，并复制到剪贴板。`, "success");
+-  } catch (error) {
+-    setStatus(`获取失败：${error.message}`, "error");
++    result = `Cookie: ${cookieValue}\nAuthorization: ${authorization.value}`;
+   }
++
++  outputElement.value = result;
++  if (!cookieValue) {
++    setStatus(`${label} 没有读取到 Cookie，请先登录。`, "error");
++    return;
++  }
++  await copyText(result);
++  const suffix = needsAuthorization ? " Cookie 和 Authorization" : " Cookie";
++  setStatus(`已获取 ${cookies.length} 个${suffix}，并复制到剪贴板。`, "success");
++}
++
++async function getCookiesForUrl(url, label, needsAuthorization = false) {
++  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
++  if (!tab?.id) {
++    setStatus("找不到当前标签页。", "error");
++    return;
++  }
++  if (needsAuthorization && !isXunleiUrl(tab.url || "")) {
++    await chrome.tabs.update(tab.id, { url });
++    setStatus("已打开迅雷云盘，请登录后重新点击“一键获取”。");
++    return;
++  }
++  await getCookiesForTab(tab, label, needsAuthorization);
+ }
+ 
+ function renderSites() {
+@@ -43,7 +98,6 @@ function renderSites() {
+   SITES.forEach((site) => {
+     const row = document.createElement("div");
+     row.className = "site";
+-
+     const info = document.createElement("div");
+     const name = document.createElement("div");
+     name.className = "site-name";
+@@ -61,7 +115,7 @@ function renderSites() {
+     const getButton = document.createElement("button");
+     getButton.className = "get";
+     getButton.textContent = "一键获取";
+-    getButton.addEventListener("click", () => getCookiesForUrl(site.url, site.name));
++    getButton.addEventListener("click", () => getCookiesForUrl(site.url, site.name, site.needsAuthorization));
+ 
+     row.append(info, openButton, getButton);
+     sitesElement.append(row);
+@@ -74,7 +128,7 @@ document.getElementById("current").addEventListener("click", async () => {
+     setStatus("当前标签页不是普通网站页面。", "error");
+     return;
+   }
+-  await getCookiesForUrl(tab.url, new URL(tab.url).hostname);
++  await getCookiesForTab(tab, new URL(tab.url).hostname);
+ });
+ 
+ document.getElementById("copy").addEventListener("click", async () => {
+@@ -84,7 +138,7 @@ document.getElementById("copy").addEventListener("click", async () => {
+     return;
+   }
+   await copyText(value);
+-  setStatus("Cookie 已复制到剪贴板。", "success");
++  setStatus("结果已复制到剪贴板。", "success");
+ });
+ 
+ document.getElementById("save").addEventListener("click", () => {
+@@ -100,7 +154,7 @@ document.getElementById("save").addEventListener("click", () => {
+   link.download = `cookie-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+   link.click();
+   URL.revokeObjectURL(url);
+-  setStatus("Cookie TXT 已保存。", "success");
++  setStatus("结果 TXT 已保存。", "success");
+ });
+ 
+ document.getElementById("clear").addEventListener("click", () => {
+diff --git a/test_extension.py b/test_extension.py
+index 98c20f4..cb26aca 100644
+--- a/test_extension.py
++++ b/test_extension.py
+@@ -2,31 +2,29 @@ import json
+ import unittest
+ from pathlib import Path
+ 
+-
+ ROOT = Path(__file__).parent
+ EXTENSION = ROOT / "chrome_extension"
+ 
+-
+ class StandaloneExtensionTests(unittest.TestCase):
+     def setUp(self):
+         self.manifest = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
+         self.popup_js = (EXTENSION / "popup.js").read_text(encoding="utf-8")
+         self.popup_html = (EXTENSION / "popup.html").read_text(encoding="utf-8")
++        self.background_js = (EXTENSION / "background.js").read_text(encoding="utf-8")
+ 
+-    def test_manifest_is_standalone_popup(self):
++    def test_manifest_is_mv3_popup_with_service_worker(self):
+         self.assertEqual(self.manifest["manifest_version"], 3)
+         self.assertEqual(self.manifest["action"]["default_popup"], "popup.html")
+-        self.assertNotIn("background", self.manifest)
++        self.assertEqual(self.manifest["background"]["service_worker"], "background.js")
+         self.assertNotIn("content_scripts", self.manifest)
+ 
+-    def test_manifest_has_cookie_and_tab_permissions(self):
+-        self.assertIn("cookies", self.manifest["permissions"])
+-        self.assertIn("tabs", self.manifest["permissions"])
+-        self.assertIn("management", self.manifest["permissions"])
++    def test_manifest_permissions(self):
++        for permission in ("cookies", "tabs", "management", "debugger", "storage"):
++            self.assertIn(permission, self.manifest["permissions"])
+         self.assertEqual(self.manifest["host_permissions"], ["<all_urls>"])
+ 
+     def test_preconfigured_sites_exist(self):
+-        for name in ("夸克网盘", "百度网盘", "UC网盘"):
++        for name in ("夸克网盘", "百度网盘", "UC网盘", "迅雷云盘"):
+             self.assertIn(name, self.popup_js)
+ 
+     def test_popup_has_one_click_controls(self):
+@@ -36,12 +34,17 @@ class StandaloneExtensionTests(unittest.TestCase):
+     def test_self_uninstall_is_available(self):
+         self.assertIn("chrome.management.uninstallSelf", self.popup_js)
+ 
+-    def test_one_click_installer_exists(self):
+-        self.assertTrue((ROOT / "一键安装.bat").is_file())
+-        self.assertTrue((ROOT / "install_helper.ps1").is_file())
+-        self.assertTrue((ROOT / "一键卸载.bat").is_file())
+-        self.assertTrue((ROOT / "uninstall_helper.ps1").is_file())
++    def test_xunlei_debugger_capture_is_scoped(self):
++        self.assertIn("startXunleiCapture", self.popup_js)
++        self.assertIn("chrome.debugger.attach", self.background_js)
++        self.assertIn("Network.requestWillBeSentExtraInfo", self.background_js)
++        self.assertIn("authorization", self.background_js)
++        self.assertIn("xunlei", self.background_js)
+ 
++    def test_one_click_installer_exists(self):
++        for name in ("一键安装.bat", "install_helper.ps1", "一键卸载.bat", "uninstall_helper.ps1"):
++            self.assertTrue((ROOT / name).is_file())
+ 
+ if __name__ == "__main__":
+     unittest.main()
++
+diff --git "a/\344\275\277\347\224\250\350\257\264\346\230\216.txt" "b/\344\275\277\347\224\250\350\257\264\346\230\216.txt"
+index 772995c..d4b6737 100644
+--- "a/\344\275\277\347\224\250\350\257\264\346\230\216.txt"
++++ "b/\344\275\277\347\224\250\350\257\264\346\230\216.txt"
+@@ -1,19 +1,17 @@
+-Cookie Hub 傻瓜式使用方法
++Cookie Hub 使用说明
+ 
+-第一次：
+-1. 双击“一键安装.bat”。
+-2. 在打开的 Chrome 页面开启“开发者模式”。
+-3. 点击“加载已解压的扩展程序”，选择自动打开的 chrome_extension 文件夹。
+-4. 把 Cookie Hub 固定到 Chrome 工具栏。
++1. 双击“一键安装.bat”，按提示在 Chrome 的“扩展程序”页面加载 chrome_extension 文件夹。
++2. 点击 Chrome 工具栏中的 Cookie Hub 图标。
++3. 在列表中点击“进入网站”，使用电脑现有 Chrome 完成登录。
++4. 回到扩展，点击对应网站的“一键获取”。结果会自动复制到剪贴板，也可点击“保存 TXT”。
+ 
+-以后使用：
+-1. 点击 Chrome 工具栏上的 Cookie Hub 图标。
+-2. 点击“进入网站”并登录。
+-3. 点击“一键获取”，Cookie 会自动复制。
+-
+-也可以直接点击“一键获取当前标签页 Cookie”。
++迅雷云盘特别步骤：
++1. 打开 https://pan.xunlei.com/ 并确认已登录。
++2. 点击“迅雷云盘”旁的“一键获取”。扩展会刷新当前迅雷标签页，并捕获当前页面发出的 Authorization。
++3. 输出包含两行：Cookie 和 Authorization。
++4. 若提示未捕获 Authorization，确认当前标签页仍是迅雷云盘、登录状态有效，再点一次“一键获取”。
+ 
+ 卸载：
+-1. 在 Cookie Hub 界面点击“卸载扩展”，在 Chrome 中确认“移除”。
+-2. 双击“一键卸载.bat”。
+-3. 卸载助手会清理扩展文件、旧版 CookieHub 本地数据和剪贴板内容，并询问是否删除导出的 cookie-*.txt。
++点击扩展里的“卸载扩展”并确认，或双击“一键卸载.bat”。卸载只删除本扩展，不删除 Chrome 账号、网站登录状态或其他扩展。
++
++注意：Cookie 和 Authorization 都是登录凭证，只在自己的账号和设备上使用，不要公开粘贴或提交到 GitHub。

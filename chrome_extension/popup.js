@@ -1,7 +1,8 @@
 const SITES = [
   { name: "夸克网盘", url: "https://pan.quark.cn/" },
   { name: "百度网盘", url: "https://pan.baidu.com/" },
-  { name: "UC网盘", url: "https://drive.uc.cn/" }
+  { name: "UC网盘", url: "https://drive.uc.cn/" },
+  { name: "迅雷云盘", url: "https://pan.xunlei.com/", needsAuthorization: true }
 ];
 
 const sitesElement = document.getElementById("sites");
@@ -21,21 +22,75 @@ async function copyText(text) {
   await navigator.clipboard.writeText(text);
 }
 
-async function getCookiesForUrl(url, label) {
-  setStatus(`正在获取 ${label}…`);
+function isXunleiUrl(url) {
   try {
-    const cookies = await chrome.cookies.getAll({ url });
-    const header = cookieHeader(cookies);
-    outputElement.value = header;
-    if (!header) {
-      setStatus(`${label} 没有读取到 Cookie，请先登录。`, "error");
+    return /(^|\\.)xunlei\\.com$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function getAuthorization() {
+  return chrome.runtime.sendMessage({ type: "getXunleiAuthorization" });
+}
+
+async function waitForAuthorization(attempts = 12, interval = 500) {
+  for (let index = 0; index < attempts; index += 1) {
+    const authorization = await getAuthorization();
+    if (authorization?.value) return authorization;
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+  return null;
+}
+
+async function prepareXunleiCapture(tabId) {
+  const response = await chrome.runtime.sendMessage({ type: "startXunleiCapture", tabId });
+  if (!response?.ok) throw new Error(response?.error || "无法启动迅雷请求捕获");
+  await chrome.tabs.reload(tabId);
+}
+
+async function getCookiesForTab(tab, label, needsAuthorization = false) {
+  setStatus(`正在获取 ${label}…`);
+  const url = tab.url;
+  const cookies = await chrome.cookies.getAll({ url });
+  const cookieValue = cookieHeader(cookies);
+  let result = cookieValue;
+
+  if (needsAuthorization) {
+    if (!isXunleiUrl(url)) throw new Error("请先打开 pan.xunlei.com 迅雷云盘页面");
+    setStatus("正在刷新迅雷页面并捕获 Authorization…");
+    await prepareXunleiCapture(tab.id);
+    const authorization = await waitForAuthorization();
+    if (!authorization?.value) {
+      outputElement.value = cookieValue;
+      setStatus("未捕获到 Authorization，请确认已登录迅雷云盘后再点一次。", "error");
       return;
     }
-    await copyText(header);
-    setStatus(`已获取 ${cookies.length} 个 Cookie，并复制到剪贴板。`, "success");
-  } catch (error) {
-    setStatus(`获取失败：${error.message}`, "error");
+    result = `Cookie: ${cookieValue}\nAuthorization: ${authorization.value}`;
   }
+
+  outputElement.value = result;
+  if (!cookieValue) {
+    setStatus(`${label} 没有读取到 Cookie，请先登录。`, "error");
+    return;
+  }
+  await copyText(result);
+  const suffix = needsAuthorization ? " Cookie 和 Authorization" : " Cookie";
+  setStatus(`已获取 ${cookies.length} 个${suffix}，并复制到剪贴板。`, "success");
+}
+
+async function getCookiesForUrl(url, label, needsAuthorization = false) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    setStatus("找不到当前标签页。", "error");
+    return;
+  }
+  if (needsAuthorization && !isXunleiUrl(tab.url || "")) {
+    await chrome.tabs.update(tab.id, { url });
+    setStatus("已打开迅雷云盘，请登录后重新点击“一键获取”。");
+    return;
+  }
+  await getCookiesForTab(tab, label, needsAuthorization);
 }
 
 function renderSites() {
@@ -43,7 +98,6 @@ function renderSites() {
   SITES.forEach((site) => {
     const row = document.createElement("div");
     row.className = "site";
-
     const info = document.createElement("div");
     const name = document.createElement("div");
     name.className = "site-name";
@@ -61,7 +115,7 @@ function renderSites() {
     const getButton = document.createElement("button");
     getButton.className = "get";
     getButton.textContent = "一键获取";
-    getButton.addEventListener("click", () => getCookiesForUrl(site.url, site.name));
+    getButton.addEventListener("click", () => getCookiesForUrl(site.url, site.name, site.needsAuthorization));
 
     row.append(info, openButton, getButton);
     sitesElement.append(row);
@@ -74,7 +128,7 @@ document.getElementById("current").addEventListener("click", async () => {
     setStatus("当前标签页不是普通网站页面。", "error");
     return;
   }
-  await getCookiesForUrl(tab.url, new URL(tab.url).hostname);
+  await getCookiesForTab(tab, new URL(tab.url).hostname);
 });
 
 document.getElementById("copy").addEventListener("click", async () => {
@@ -84,7 +138,7 @@ document.getElementById("copy").addEventListener("click", async () => {
     return;
   }
   await copyText(value);
-  setStatus("Cookie 已复制到剪贴板。", "success");
+  setStatus("结果已复制到剪贴板。", "success");
 });
 
 document.getElementById("save").addEventListener("click", () => {
@@ -100,7 +154,7 @@ document.getElementById("save").addEventListener("click", () => {
   link.download = `cookie-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
   link.click();
   URL.revokeObjectURL(url);
-  setStatus("Cookie TXT 已保存。", "success");
+  setStatus("结果 TXT 已保存。", "success");
 });
 
 document.getElementById("clear").addEventListener("click", () => {
