@@ -40,6 +40,9 @@ class StandaloneExtensionTests(unittest.TestCase):
         self.assertIn("获取 Authorization", self.popup_js)
         self.assertIn("getAuthorizationForTab", self.popup_js)
         self.assertNotIn("needsAuthorization", self.popup_js)
+        cookie_flow = self.popup_js.split("async function getCookiesForTab", 1)[1].split("async function getAuthorizationForTab", 1)[0]
+        self.assertNotIn("prepareXunleiCapture", cookie_flow)
+        self.assertNotIn("chrome.tabs.reload", cookie_flow)
         self.assertIn("chrome.debugger.attach", self.background_js)
         self.assertIn("Network.requestWillBeSentExtraInfo", self.background_js)
         self.assertIn("authorization", self.background_js)
