@@ -16,6 +16,8 @@
 2. 在 Chrome 扩展页开启“开发者模式”。
 3. 点击“加载已解压的扩展程序”，选择 `chrome_extension` 文件夹。
 
+注意：加载完成后不要删除或移动 `chrome_extension` 文件夹，否则扩展会失效。
+
 也可以直接打开 `chrome://extensions/` 手动加载 `chrome_extension` 文件夹。
 
 ## 使用
