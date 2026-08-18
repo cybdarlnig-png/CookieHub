@@ -5,6 +5,10 @@ const XUNLEI_URL_FILTER = [
 const attachedTabs = new Map();
 const requestUrls = new Map();
 
+function authStorage() {
+  return chrome.storage.session || chrome.storage.local;
+}
+
 function isXunleiUrl(url) {
   try {
     return /(^|\.)xunlei\.com$/i.test(new URL(url).hostname);
@@ -35,9 +39,18 @@ async function detach(tabId) {
 }
 
 async function startCapture(tabId) {
+  if (!Number.isInteger(tabId)) throw new Error("无效的迅雷标签页。");
   await detach(tabId);
-  await chrome.storage.session.remove("xunleiAuthorization");
-  await chrome.debugger.attach({ tabId }, "1.3");
+  await authStorage().remove("xunleiAuthorization");
+  try {
+    await chrome.debugger.attach({ tabId }, "1.3");
+  } catch (error) {
+    const message = error?.message || String(error);
+    if (/another debugger|debugger is already attached/i.test(message)) {
+      throw new Error("当前标签页已被其他扩展的调试器占用。");
+    }
+    throw error;
+  }
   attachedTabs.set(tabId, true);
   await chrome.debugger.sendCommand({ tabId }, "Network.enable");
   return { ok: true };
@@ -62,7 +75,7 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
   const authorization = findAuthorization(headers);
   if (!authorization) return;
 
-  await chrome.storage.session.set({
+  await authStorage().set({
     xunleiAuthorization: {
       value: authorization,
       url,
@@ -91,7 +104,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "getXunleiAuthorization") {
-    chrome.storage.session.get("xunleiAuthorization")
+    authStorage().get("xunleiAuthorization")
       .then((result) => sendResponse(result.xunleiAuthorization || null));
     return true;
   }
