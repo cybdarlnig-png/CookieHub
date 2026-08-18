@@ -3,6 +3,7 @@ const XUNLEI_URL_FILTER = [
   "http://*.xunlei.com/*"
 ];
 const attachedTabs = new Map();
+const requestUrls = new Map();
 
 function isXunleiUrl(url) {
   try {
@@ -12,14 +13,10 @@ function isXunleiUrl(url) {
   }
 }
 
-function isAuthorizationHeader(name) {
-  return name && name.toLowerCase() === "authorization";
-}
-
 function findAuthorization(headers) {
   if (!headers || typeof headers !== "object") return null;
   for (const [name, value] of Object.entries(headers)) {
-    if (isAuthorizationHeader(name) && value) return String(value);
+    if (name.toLowerCase() === "authorization" && value) return String(value);
   }
   return null;
 }
@@ -27,6 +24,9 @@ function findAuthorization(headers) {
 async function detach(tabId) {
   if (!attachedTabs.has(tabId)) return;
   attachedTabs.delete(tabId);
+  for (const key of requestUrls.keys()) {
+    if (key.startsWith(`${tabId}:`)) requestUrls.delete(key);
+  }
   try {
     await chrome.debugger.detach({ tabId });
   } catch {
@@ -48,7 +48,12 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
   if (!tabId || !attachedTabs.has(tabId)) return;
   if (method !== "Network.requestWillBeSentExtraInfo" && method !== "Network.requestWillBeSent") return;
 
-  const url = params?.request?.url;
+  if (method === "Network.requestWillBeSent" && params.requestId && params.request?.url) {
+    requestUrls.set(`${tabId}:${params.requestId}`, params.request.url);
+  }
+  const url = method === "Network.requestWillBeSentExtraInfo"
+    ? requestUrls.get(`${tabId}:${params.requestId}`)
+    : params.request?.url;
   if (!url || !isXunleiUrl(url)) return;
 
   const headers = method === "Network.requestWillBeSentExtraInfo"
@@ -73,6 +78,9 @@ chrome.debugger.onDetach.addListener((source) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   attachedTabs.delete(tabId);
+  for (const key of requestUrls.keys()) {
+    if (key.startsWith(`${tabId}:`)) requestUrls.delete(key);
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -89,4 +97,3 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   return false;
 });
-
