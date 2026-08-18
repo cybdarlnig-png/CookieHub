@@ -14,6 +14,20 @@ function setStatus(message, type = "") {
   statusElement.className = type;
 }
 
+function readableError(error) {
+  const message = error?.message || String(error);
+  if (/another debugger|debugger is already attached/i.test(message)) {
+    return "当前迅雷标签页被其他扩展占用，请移除旧 Authorization 扩展，然后在 chrome://extensions 重新加载 Cookie Hub。";
+  }
+  if (/receiving end does not exist|could not establish connection/i.test(message)) {
+    return "扩展后台尚未更新，请到 chrome://extensions 点击 Cookie Hub 的“重新加载”后重试。";
+  }
+  if (/permission|not allowed|cannot access/i.test(message)) {
+    return "当前扩展没有生效的 debugger 权限，请到 chrome://extensions 重新加载 Cookie Hub。";
+  }
+  return message;
+}
+
 function cookieHeader(cookies) {
   return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
 }
@@ -100,7 +114,7 @@ async function getCookiesForSite(site) {
     const tab = await getSiteTab(site);
     if (tab) await getCookiesForTab(tab, site.name, site.url);
   } catch (error) {
-    setStatus(`获取失败：${error.message}`, "error");
+    setStatus(`获取失败：${readableError(error)}`, "error");
   }
 }
 
@@ -109,7 +123,7 @@ async function getAuthorizationForSite(site) {
     const tab = await getSiteTab(site);
     if (tab) await getAuthorizationForTab(tab);
   } catch (error) {
-    setStatus(`获取失败：${error.message}`, "error");
+    setStatus(`获取失败：${readableError(error)}`, "error");
   }
 }
 

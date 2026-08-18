@@ -44,6 +44,8 @@ class StandaloneExtensionTests(unittest.TestCase):
         self.assertNotIn("prepareXunleiCapture", cookie_flow)
         self.assertNotIn("chrome.tabs.reload", cookie_flow)
         self.assertIn("chrome.debugger.attach", self.background_js)
+        self.assertIn("chrome.storage.session || chrome.storage.local", self.background_js)
+        self.assertIn("debugger is already attached", self.background_js)
         self.assertIn("Network.requestWillBeSentExtraInfo", self.background_js)
         self.assertIn("authorization", self.background_js)
         self.assertIn("xunlei", self.background_js)
