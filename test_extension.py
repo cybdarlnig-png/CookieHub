@@ -36,6 +36,10 @@ class StandaloneExtensionTests(unittest.TestCase):
 
     def test_xunlei_debugger_capture_is_scoped(self):
         self.assertIn("startXunleiCapture", self.popup_js)
+        self.assertIn("获取 Cookie", self.popup_js)
+        self.assertIn("获取 Authorization", self.popup_js)
+        self.assertIn("getAuthorizationForTab", self.popup_js)
+        self.assertNotIn("needsAuthorization", self.popup_js)
         self.assertIn("chrome.debugger.attach", self.background_js)
         self.assertIn("Network.requestWillBeSentExtraInfo", self.background_js)
         self.assertIn("authorization", self.background_js)

@@ -7,7 +7,7 @@ const requestUrls = new Map();
 
 function isXunleiUrl(url) {
   try {
-    return /(^|\\.)xunlei\\.com$/i.test(new URL(url).hostname);
+    return /(^|\.)xunlei\.com$/i.test(new URL(url).hostname);
   } catch {
     return false;
   }

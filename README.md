@@ -9,7 +9,7 @@
 - 使用当前 Chrome 的登录状态
 - 支持任意普通 `HTTP/HTTPS` 网站的当前标签页
 - 预置夸克网盘、百度网盘、UC 网盘和迅雷云盘入口
-- 迅雷云盘同时捕获匹配请求中的 `Authorization`
+- 迅雷云盘提供独立的“获取 Cookie”和“获取 Authorization”按钮
 - 一键整理为标准 `name=value; name2=value2` 格式
 - 自动复制到剪贴板，可保存为本地 TXT
 - 不启动独立浏览器或独立 Profile
@@ -54,13 +54,16 @@ Cookie 显示并自动复制
 1. 点击 Chrome 工具栏上的 Cookie Hub 图标。
 2. 点击夸克网盘、百度网盘、UC网盘或迅雷云盘旁的“进入网站”。
 3. 完成登录后重新打开扩展。
-4. 点击“一键获取”。
+4. 点击对应的获取按钮。
 
-迅雷云盘需要额外捕获 `Authorization`：登录后先刷新迅雷云盘页面，再点击“一键获取”。
-扩展会复制如下两行：
+迅雷云盘的两个按钮相互独立：
+
+- “获取 Cookie”只读取当前登录状态，不刷新页面；
+- “获取 Authorization”才会刷新当前迅雷标签页并捕获请求头。
+
+Authorization 按钮成功后会复制：
 
 ```text
-Cookie: name=value; name2=value2
 Authorization: Bearer ...
 ```
 
@@ -84,11 +87,11 @@ Authorization: Bearer ...
 | `tabs` | 获取当前活动标签页网址、打开预置网站 |
 | `clipboardWrite` | 将结果复制到剪贴板 |
 | `management` | 允许用户从扩展界面发起自卸载 |
-| `debugger` | 仅在用户点击迅雷按钮时，观察当前迅雷标签页的网络请求头 |
+| `debugger` | 仅在用户点击“获取 Authorization”时，观察当前迅雷标签页的网络请求头 |
 | `storage` | 在当前扩展会话中暂存迅雷 Authorization |
 | `<all_urls>` | 支持当前标签页中的普通网站 |
 
-所有处理均在本机 Chrome 扩展中完成。项目代码没有使用 `fetch`、`XMLHttpRequest`、WebSocket 或远程服务器上传 Cookie。Authorization 监听仅匹配 `*.xunlei.com` 请求，并在捕获到 Authorization 后立即解除调试连接。
+所有处理均在本机 Chrome 扩展中完成。项目代码没有使用 `fetch`、`XMLHttpRequest`、WebSocket 或远程服务器上传 Cookie。Authorization 监听仅匹配 `*.xunlei.com` 请求，并在捕获到 Authorization 后立即解除调试连接。旧的独立 Authorization 扩展不再需要，只保留 Cookie Hub。
 
 ## 使用限制
 
