@@ -1,5 +1,6 @@
 # Local secrets and exported credentials
 cookie-*.txt
+authorization-*.txt
 *.cookie.txt
 
 # Python caches
@@ -13,9 +14,14 @@ cookie_hub.diff
 VERIFICATION.txt
 ROLLBACK.sh
 
+# Build artifacts
+dist/
+*.zip
+*.sha256
+*.patch
+
 # Editor / OS files
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-
