@@ -1,24 +1,37 @@
 # Cookie Hub Chrome 扩展
 
-安装后点击 Chrome 工具栏上的 Cookie Hub 图标即可使用。
+`chrome_extension/` 是可以直接“加载已解压的扩展程序”的 Manifest V3 目录。
 
-界面提供：
+## 文件
 
-- 一键获取当前标签页 Cookie；
-- 夸克网盘、百度网盘、UC 网盘、迅雷云盘快捷入口；
-- 迅雷云盘提供独立的 Cookie 和 Authorization 获取按钮；
-- 一键获取并复制；
-- 保存 TXT；
-- 复制和清空结果。
-- 点击“卸载扩展”并确认即可从 Chrome 删除。
+- `manifest.json`：MV3 清单，声明 Cookie、标签页、剪贴板、下载、调试器和会话存储权限。
+- `popup.html` / `popup.js`：弹窗界面、Cookie 读取、Authorization 等待与结果保存。
+- `background.js`：迅雷 Authorization 的调试器捕获、30 秒超时自动断开、结果推送。
+- `icons/`：16/32/48/128 图标，由 `tools/make_icons.py` 生成。
 
-迅雷云盘的“获取 Cookie”按钮只读取当前登录状态，不刷新页面。
-“获取 Authorization”按钮会在登录后刷新页面，让扩展捕获当前迅雷标签页网络请求中的
-`Authorization` 请求头。两个结果分别复制：
+## 行为约定
 
-```text
-Authorization: Bearer ...
+- 结果只写入 `chrome.storage.session`，不落盘、不联网；弹窗重新打开时会恢复。
+- 读取 Cookie 不会刷新页面；只有“获取 Authorization”会刷新当前迅雷标签页。
+- Authorization 捕获成功后立即断开调试器；25 秒未捕获时弹窗会请求取消，后台 30 秒兜底断开。
+- 保存 TXT 优先使用 `chrome.downloads`，失败时回退到 `<a download>`。
+- 不引入任何远程脚本、`fetch`、`XMLHttpRequest` 或 WebSocket，测试会对此做静态检查。
+
+## 本地检查
+
+```powershell
+python -m unittest -v test_extension
+node --check background.js
+node --check popup.js
+node ../tools/smoke_chrome.mjs
 ```
 
-Authorization 只在本地扩展会话中暂存，不上传到远程服务器。点击“获取 Authorization”时扩展会刷新当前迅雷标签页，捕获成功后立即断开调试连接。旧的独立 Authorization 扩展不再需要。
+`tools/smoke_chrome.mjs` 会在真实 Chrome 中加载本目录、校验接口并刷新 `docs/popup.png`。
 
+## 修改图标
+
+```powershell
+python tools/make_icons.py
+```
+
+修改 `manifest.json` 的版本号后运行 `python tools/build_package.py` 生成可分发的 zip。
