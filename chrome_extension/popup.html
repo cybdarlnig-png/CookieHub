@@ -15,13 +15,17 @@
       font-family: "Microsoft YaHei UI", Arial, sans-serif;
     }
     h1 { margin: 0; font-size: 22px; }
-    .subtitle { margin: 5px 0 14px; color: #667085; font-size: 13px; }
+    .header { display: flex; align-items: center; gap: 12px; }
+    .logo { width: 44px; height: 44px; border-radius: 11px; }
+    .subtitle { margin: 4px 0 0; color: #667085; font-size: 13px; }
+    .spacer { height: 14px; }
     .primary, .site button, .toolbar button {
       border: 0;
       border-radius: 9px;
       cursor: pointer;
       font-weight: 600;
     }
+    button:disabled { cursor: progress; opacity: 0.55; }
     .primary {
       width: 100%;
       padding: 12px;
@@ -29,8 +33,9 @@
       background: #2563eb;
       font-size: 15px;
     }
-    .primary:hover { background: #1d4ed8; }
+    .primary:hover:enabled { background: #1d4ed8; }
     .section-title { margin: 16px 0 8px; font-size: 14px; font-weight: 700; }
+    .section-title .hint { margin-left: 6px; color: #98a2b3; font-size: 11px; font-weight: 400; }
     .site-list { display: grid; gap: 8px; }
     .site {
       display: grid;
@@ -70,18 +75,31 @@
     }
     .success { color: #15803d !important; }
     .error { color: #b42318 !important; }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      color: #98a2b3;
+      font-size: 11px;
+    }
   </style>
 </head>
 <body>
-  <h1>Cookie Hub</h1>
-  <div class="subtitle">使用当前 Chrome 登录状态，点击后自动复制 Cookie。</div>
+  <div class="header">
+    <img class="logo" src="icons/icon-48.png" alt="">
+    <div>
+      <h1>Cookie Hub</h1>
+      <div class="subtitle">使用当前 Chrome 登录状态，点击后自动复制 Cookie。</div>
+    </div>
+  </div>
+  <div class="spacer"></div>
 
   <button id="current" class="primary">一键获取当前标签页 Cookie</button>
 
   <div class="section-title">常用网站</div>
   <div id="sites" class="site-list"></div>
 
-  <div class="section-title">获取结果</div>
+  <div class="section-title">获取结果<span class="hint">仅在本机处理，浏览器关闭后自动清除</span></div>
   <textarea id="output" spellcheck="false" placeholder="获取成功后会显示在这里，并自动复制到剪贴板。"></textarea>
   <div class="toolbar">
     <button id="copy">复制结果</button>
@@ -89,7 +107,11 @@
     <button id="clear">清空</button>
     <button id="uninstall" class="danger">卸载扩展</button>
   </div>
-  <div id="status">请选择网站或获取当前标签页。</div>
+  <div id="status" role="status" aria-live="polite">请选择网站或获取当前标签页。</div>
+  <div class="footer">
+    <span>Cookie 与 Authorization 都是登录凭证，请勿公开或转发。</span>
+    <span id="version"></span>
+  </div>
 
   <script src="popup.js"></script>
 </body>

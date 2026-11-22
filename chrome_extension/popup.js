@@ -5,35 +5,73 @@ const SITES = [
   { name: "迅雷云盘", url: "https://pan.xunlei.com/", isXunlei: true }
 ];
 
+const LAST_RESULT_KEY = "lastResult";
+const CAPTURE_TIMEOUT_MS = 25000;
+
 const sitesElement = document.getElementById("sites");
 const outputElement = document.getElementById("output");
 const statusElement = document.getElementById("status");
+const versionElement = document.getElementById("version");
+let busy = false;
 
 function setStatus(message, type = "") {
   statusElement.textContent = message;
   statusElement.className = type;
 }
 
+function setBusy(value) {
+  busy = value;
+  document.querySelectorAll("button").forEach((button) => {
+    button.disabled = value;
+  });
+}
+
 function readableError(error) {
   const message = error?.message || String(error);
   if (/another debugger|debugger is already attached/i.test(message)) {
-    return "当前迅雷标签页被其他扩展占用，请移除旧 Authorization 扩展，然后在 chrome://extensions 重新加载 Cookie Hub。";
+    return "当前迅雷标签页被其他扩展占用，请先停用占用调试器的扩展，然后在 chrome://extensions 重新加载 Cookie Hub。";
   }
   if (/receiving end does not exist|could not establish connection/i.test(message)) {
     return "扩展后台尚未更新，请到 chrome://extensions 点击 Cookie Hub 的“重新加载”后重试。";
   }
   if (/permission|not allowed|cannot access/i.test(message)) {
-    return "当前扩展没有生效的 debugger 权限，请到 chrome://extensions 重新加载 Cookie Hub。";
+    return "当前扩展缺少所需权限，请到 chrome://extensions 移除后重新加载 chrome_extension 文件夹。";
+  }
+  if (/no tab with id/i.test(message)) {
+    return "标签页已关闭，请重新进入目标网站后再试。";
   }
   return message;
 }
 
 function cookieHeader(cookies) {
-  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  return [...cookies]
+    .sort((left, right) => (right.path || "").length - (left.path || "").length || left.name.localeCompare(right.name))
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join("; ");
 }
 
 async function copyText(text) {
-  await navigator.clipboard.writeText(text);
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // 弹窗失去焦点时 Clipboard API 会被拒绝，回退到可用的旧接口。
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
+    area.remove();
+    return copied;
+  }
 }
 
 function isXunleiUrl(url) {
@@ -45,35 +83,95 @@ function isXunleiUrl(url) {
 }
 
 async function getAuthorization() {
-  return chrome.runtime.sendMessage({ type: "getXunleiAuthorization" });
-}
-
-async function waitForAuthorization(attempts = 12, interval = 500) {
-  for (let index = 0; index < attempts; index += 1) {
-    const authorization = await getAuthorization();
-    if (authorization?.value) return authorization;
-    await new Promise((resolve) => setTimeout(resolve, interval));
+  try {
+    return await chrome.runtime.sendMessage({ type: "getXunleiAuthorization" });
+  } catch {
+    return null;
   }
-  return null;
 }
 
-async function prepareXunleiCapture(tabId) {
-  const response = await chrome.runtime.sendMessage({ type: "startXunleiCapture", tabId });
+function waitForAuthorization(timeoutMs = CAPTURE_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    let done = false;
+    let timer = 0;
+    let pollTimer = 0;
+    const finish = (authorization) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      clearInterval(pollTimer);
+      chrome.runtime.onMessage.removeListener(onMessage);
+      resolve(authorization || null);
+    };
+    const onMessage = (message) => {
+      if (message?.type === "xunleiAuthorizationCaptured" && message.authorization?.value) {
+        finish(message.authorization);
+      }
+    };
+    chrome.runtime.onMessage.addListener(onMessage);
+    timer = setTimeout(() => finish(null), timeoutMs);
+    pollTimer = setInterval(async () => {
+      if (done) return;
+      const authorization = await getAuthorization();
+      if (authorization?.value) finish(authorization);
+    }, 1000);
+  });
+}
+
+async function startXunleiCapture(tabId) {
+  let response = null;
+  try {
+    response = await chrome.runtime.sendMessage({ type: "startXunleiCapture", tabId });
+  } catch (error) {
+    throw new Error(readableError(error));
+  }
   if (!response?.ok) throw new Error(response?.error || "无法启动迅雷请求捕获");
-  await chrome.tabs.reload(tabId);
+}
+
+async function cancelXunleiCapture(tabId) {
+  try {
+    await chrome.runtime.sendMessage({ type: "cancelXunleiCapture", tabId });
+  } catch {
+    // 弹窗关闭或后台已断开时无需处理。
+  }
+}
+
+async function rememberResult(label, value) {
+  outputElement.value = value;
+  try {
+    await chrome.storage.session.set({
+      [LAST_RESULT_KEY]: { label, value, savedAt: new Date().toISOString() }
+    });
+  } catch {
+    // 会话存储不可用时不影响本次获取结果。
+  }
+}
+
+async function forgetResult() {
+  outputElement.value = "";
+  try {
+    await chrome.storage.session.remove(LAST_RESULT_KEY);
+  } catch {
+    // 忽略会话存储清理失败。
+  }
 }
 
 async function getCookiesForTab(tab, label, cookieUrl = tab.url) {
   setStatus(`正在获取 ${label}…`);
   const cookies = await chrome.cookies.getAll({ url: cookieUrl });
   const cookieValue = cookieHeader(cookies);
-  outputElement.value = cookieValue;
   if (!cookieValue) {
-    setStatus(`${label} 没有读取到 Cookie，请先登录。`, "error");
+    await forgetResult();
+    setStatus(`${label} 没有读取到 Cookie，请先在 Chrome 中登录该网站。`, "error");
     return;
   }
-  await copyText(cookieValue);
-  setStatus(`已获取 ${cookies.length} 个 Cookie，并复制到剪贴板。`, "success");
+  await rememberResult(label, cookieValue);
+  const copied = await copyText(cookieValue);
+  if (copied) {
+    setStatus(`已获取 ${cookies.length} 个 Cookie，并复制到剪贴板。`, "success");
+  } else {
+    setStatus(`已获取 ${cookies.length} 个 Cookie；自动复制失败，请点击“复制结果”。`, "error");
+  }
 }
 
 async function getAuthorizationForTab(tab) {
@@ -81,17 +179,29 @@ async function getAuthorizationForTab(tab) {
     setStatus("请先进入迅雷云盘，再点击“获取 Authorization”。", "error");
     return;
   }
-  setStatus("正在刷新迅雷页面并捕获 Authorization…");
-  await prepareXunleiCapture(tab.id);
-  const authorization = await waitForAuthorization();
+  setStatus("正在刷新迅雷页面并捕获 Authorization，请稍候…");
+  await startXunleiCapture(tab.id);
+  const waiting = waitForAuthorization();
+  try {
+    await chrome.tabs.reload(tab.id);
+  } catch (error) {
+    await cancelXunleiCapture(tab.id);
+    throw error;
+  }
+  const authorization = await waiting;
   if (!authorization?.value) {
-    setStatus("未捕获到 Authorization，请确认已登录迅雷云盘后重试。", "error");
+    await cancelXunleiCapture(tab.id);
+    setStatus("25 秒内未捕获到 Authorization，请确认已登录迅雷云盘、当前标签页未被关闭后重试。", "error");
     return;
   }
   const result = `Authorization: ${authorization.value}`;
-  outputElement.value = result;
-  await copyText(result);
-  setStatus("已获取 Authorization，并复制到剪贴板。", "success");
+  await rememberResult("迅雷 Authorization", result);
+  const copied = await copyText(result);
+  if (copied) {
+    setStatus("已获取 Authorization，并复制到剪贴板。", "success");
+  } else {
+    setStatus("已获取 Authorization；自动复制失败，请点击“复制结果”。", "error");
+  }
 }
 
 async function getSiteTab(site) {
@@ -109,22 +219,30 @@ async function getSiteTab(site) {
   return tab;
 }
 
-async function getCookiesForSite(site) {
+async function runTask(task) {
+  if (busy) return;
+  setBusy(true);
   try {
-    const tab = await getSiteTab(site);
-    if (tab) await getCookiesForTab(tab, site.name, site.url);
+    await task();
   } catch (error) {
-    setStatus(`获取失败：${readableError(error)}`, "error");
+    setStatus(`操作失败：${readableError(error)}`, "error");
+  } finally {
+    setBusy(false);
   }
 }
 
-async function getAuthorizationForSite(site) {
-  try {
+function getCookiesForSite(site) {
+  return runTask(async () => {
+    const tab = await getSiteTab(site);
+    if (tab) await getCookiesForTab(tab, site.name, site.url);
+  });
+}
+
+function getAuthorizationForSite(site) {
+  return runTask(async () => {
     const tab = await getSiteTab(site);
     if (tab) await getAuthorizationForTab(tab);
-  } catch (error) {
-    setStatus(`获取失败：${readableError(error)}`, "error");
-  }
+  });
 }
 
 function renderSites() {
@@ -164,48 +282,95 @@ function renderSites() {
   });
 }
 
-document.getElementById("current").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.url || !/^https?:\/\//i.test(tab.url)) {
-    setStatus("当前标签页不是普通网站页面。", "error");
-    return;
-  }
-  await getCookiesForTab(tab, new URL(tab.url).hostname, tab.url);
+document.getElementById("current").addEventListener("click", () => {
+  runTask(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url || !/^https?:\/\//i.test(tab.url)) {
+      setStatus("当前标签页不是普通网站页面。", "error");
+      return;
+    }
+    await getCookiesForTab(tab, new URL(tab.url).hostname, tab.url);
+  });
 });
 
-document.getElementById("copy").addEventListener("click", async () => {
-  const value = outputElement.value.trim();
-  if (!value) {
-    setStatus("当前没有可复制的 Cookie。", "error");
-    return;
-  }
-  await copyText(value);
-  setStatus("结果已复制到剪贴板。", "success");
+document.getElementById("copy").addEventListener("click", () => {
+  runTask(async () => {
+    const value = outputElement.value.trim();
+    if (!value) {
+      setStatus("当前没有可复制的结果。", "error");
+      return;
+    }
+    const copied = await copyText(value);
+    setStatus(copied ? "结果已复制到剪贴板。" : "复制失败，请手动选中文本复制。", copied ? "success" : "error");
+  });
 });
+
+function timestampForFilename(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
 
 document.getElementById("save").addEventListener("click", () => {
-  const value = outputElement.value.trim();
-  if (!value) {
-    setStatus("当前没有可保存的 Cookie。", "error");
-    return;
-  }
-  const blob = new Blob([value], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `cookie-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
-  link.click();
-  URL.revokeObjectURL(url);
-  setStatus("结果 TXT 已保存。", "success");
+  runTask(async () => {
+    const value = outputElement.value.trim();
+    if (!value) {
+      setStatus("当前没有可保存的结果。", "error");
+      return;
+    }
+    const prefix = value.startsWith("Authorization:") ? "authorization" : "cookie";
+    const filename = `${prefix}-${timestampForFilename()}.txt`;
+    const blob = new Blob([value], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    try {
+      await chrome.downloads.download({ url, filename, saveAs: false });
+    } catch {
+      // downloads 权限不可用时回退到页面内下载，并延迟释放 Blob。
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    setStatus(`已保存 ${filename}，文件位于浏览器下载目录。`, "success");
+  });
 });
 
 document.getElementById("clear").addEventListener("click", () => {
-  outputElement.value = "";
-  setStatus("结果已清空。");
+  runTask(async () => {
+    await forgetResult();
+    setStatus("结果已清空。");
+  });
 });
 
 document.getElementById("uninstall").addEventListener("click", () => {
-  chrome.management.uninstallSelf({ showConfirmDialog: true });
+  chrome.management.uninstallSelf({ showConfirmDialog: true }).catch((error) => {
+    setStatus(`卸载未完成：${readableError(error)}`, "error");
+  });
 });
 
+async function restoreLastResult() {
+  try {
+    const stored = await chrome.storage.session.get(LAST_RESULT_KEY);
+    const last = stored?.[LAST_RESULT_KEY];
+    if (!last?.value) return;
+    outputElement.value = last.value;
+    setStatus(`已恢复上次获取的${last.label || "结果"}（仅本次浏览器会话保留）。`);
+  } catch {
+    // 会话存储不可用时保持空白界面。
+  }
+}
+
+function showVersion() {
+  try {
+    versionElement.textContent = `v${chrome.runtime.getManifest().version}`;
+  } catch {
+    versionElement.textContent = "";
+  }
+}
+
+showVersion();
 renderSites();
+restoreLastResult();

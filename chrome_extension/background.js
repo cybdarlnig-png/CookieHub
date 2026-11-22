@@ -1,13 +1,7 @@
-const XUNLEI_URL_FILTER = [
-  "https://*.xunlei.com/*",
-  "http://*.xunlei.com/*"
-];
-const attachedTabs = new Map();
+const CAPTURE_TIMEOUT_MS = 30000;
+const attachedTabs = new Set();
 const requestUrls = new Map();
-
-function authStorage() {
-  return chrome.storage.session || chrome.storage.local;
-}
+const captureTimers = new Map();
 
 function isXunleiUrl(url) {
   try {
@@ -25,12 +19,21 @@ function findAuthorization(headers) {
   return null;
 }
 
-async function detach(tabId) {
-  if (!attachedTabs.has(tabId)) return;
-  attachedTabs.delete(tabId);
+function clearTabState(tabId) {
+  const timer = captureTimers.get(tabId);
+  if (timer) {
+    clearTimeout(timer);
+    captureTimers.delete(tabId);
+  }
   for (const key of requestUrls.keys()) {
     if (key.startsWith(`${tabId}:`)) requestUrls.delete(key);
   }
+}
+
+async function detach(tabId) {
+  clearTabState(tabId);
+  if (!attachedTabs.has(tabId)) return;
+  attachedTabs.delete(tabId);
   try {
     await chrome.debugger.detach({ tabId });
   } catch {
@@ -41,7 +44,7 @@ async function detach(tabId) {
 async function startCapture(tabId) {
   if (!Number.isInteger(tabId)) throw new Error("无效的迅雷标签页。");
   await detach(tabId);
-  await authStorage().remove("xunleiAuthorization");
+  await chrome.storage.session.remove("xunleiAuthorization");
   try {
     await chrome.debugger.attach({ tabId }, "1.3");
   } catch (error) {
@@ -49,14 +52,44 @@ async function startCapture(tabId) {
     if (/another debugger|debugger is already attached/i.test(message)) {
       throw new Error("当前标签页已被其他扩展的调试器占用。");
     }
+    if (/cannot attach|cannot access/i.test(message)) {
+      throw new Error("无法附加调试器，请确认当前标签页是迅雷云盘等普通网页。");
+    }
     throw error;
   }
-  attachedTabs.set(tabId, true);
-  await chrome.debugger.sendCommand({ tabId }, "Network.enable");
+  attachedTabs.add(tabId);
+  captureTimers.set(
+    tabId,
+    setTimeout(() => {
+      detach(tabId);
+    }, CAPTURE_TIMEOUT_MS)
+  );
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "Network.enable");
+  } catch (error) {
+    await detach(tabId);
+    throw error;
+  }
   return { ok: true };
 }
 
-chrome.debugger.onEvent.addListener(async (source, method, params) => {
+async function handleAuthorization(tabId, value, url) {
+  if (!attachedTabs.has(tabId)) return;
+  const authorization = {
+    value,
+    url,
+    capturedAt: new Date().toISOString()
+  };
+  await chrome.storage.session.set({ xunleiAuthorization: authorization });
+  await detach(tabId);
+  try {
+    await chrome.runtime.sendMessage({ type: "xunleiAuthorizationCaptured", authorization });
+  } catch {
+    // 弹窗已关闭时没有接收方，结果仍保存在会话存储中。
+  }
+}
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
   const tabId = source.tabId;
   if (!tabId || !attachedTabs.has(tabId)) return;
   if (method !== "Network.requestWillBeSentExtraInfo" && method !== "Network.requestWillBeSent") return;
@@ -75,37 +108,38 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
   const authorization = findAuthorization(headers);
   if (!authorization) return;
 
-  await authStorage().set({
-    xunleiAuthorization: {
-      value: authorization,
-      url,
-      capturedAt: new Date().toISOString()
-    }
-  });
-  await detach(tabId);
+  handleAuthorization(tabId, authorization, url).catch(() => {});
 });
 
 chrome.debugger.onDetach.addListener((source) => {
-  if (source.tabId) attachedTabs.delete(source.tabId);
+  if (!source.tabId) return;
+  clearTabState(source.tabId);
+  attachedTabs.delete(source.tabId);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  clearTabState(tabId);
   attachedTabs.delete(tabId);
-  for (const key of requestUrls.keys()) {
-    if (key.startsWith(`${tabId}:`)) requestUrls.delete(key);
-  }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "startXunleiCapture") {
     startCapture(message.tabId)
       .then(sendResponse)
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+  if (message?.type === "cancelXunleiCapture") {
+    detach(message.tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (message?.type === "getXunleiAuthorization") {
-    authStorage().get("xunleiAuthorization")
-      .then((result) => sendResponse(result.xunleiAuthorization || null));
+    chrome.storage.session
+      .get("xunleiAuthorization")
+      .then((result) => sendResponse(result.xunleiAuthorization || null))
+      .catch(() => sendResponse(null));
     return true;
   }
   return false;
